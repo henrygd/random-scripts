@@ -1,0 +1,61 @@
+#! /bin/python3
+
+"""
+Finds jpg and png images in a directory created in last near 24 hours 
+which aren't made by wordpress and optimizes them.
+
+Don't need to bother with wordpress optimized files if using libvips
+wp plugin to make them.
+
+Backs up original files to ~/image-backups.
+
+Must have vips and pyvips.
+"""
+
+import pyvips
+import re
+from os import scandir, path
+from time import time
+from datetime import datetime
+from shutil import copyfile
+from pathlib import Path
+
+HOME = path.expanduser('~')
+
+cur_time = time()
+
+# image extensions to optimize
+extensions = ('.jpg', '.JPG', '.jpeg', '.JPEG', 'png', '.PNG')
+
+# search for images w/ min size of 500 kb
+# min_size = 500000
+# and entry.stat().st_size > min_size
+
+# date folder
+todays_date = datetime.today().strftime('%Y-%m-%d')
+backup_folder = f"{HOME}/image-backups/{todays_date}"
+
+def scantree(path):
+	"""Recursively yield DirEntry objects for given directory."""
+	for entry in scandir(path):
+		if entry.is_dir(follow_symlinks=False):
+			yield from scantree(entry.path)
+		else:
+			yield entry
+
+for entry in scantree("."):
+	# don't work on "\dx\d" or 'scaled' images made by wordpress
+	if entry.path.endswith(extensions) and not (re.search("-\d*x\d*", entry.name)) and not ('scaled' in entry.name) and (cur_time - entry.stat().st_ctime < 86200):
+		# back up image in home directory
+		Path(backup_folder).mkdir( parents=True, exist_ok=True )
+		backup_image = f"{backup_folder}/{entry.name}"
+		# copy file to backup directory if it doesn't exist
+		if not path.exists(backup_image):
+			copyfile(entry.path, backup_image)
+		# optimize image
+		image = pyvips.Image.thumbnail(f"{backup_folder}/{entry.name}", 2300, size='down')
+		if entry.path.endswith(('.jpg', '.JPG', '.jpeg', '.JPEG')):
+			image.write_to_file(entry.path, Q=73, strip=True)
+		if entry.path.endswith(('.png', '.PNG')):
+			image.write_to_file(entry.path, Q=100, palette=True, compression=8, filter=8, strip=True)
+		print("Optimized " + entry.path)
